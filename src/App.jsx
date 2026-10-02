@@ -19,69 +19,116 @@ import {
 
 import "./index.css";
 
-const initialTasks = [
-  {
-    id: 1,
-    title: "Complete internship documentation",
-    description:
-      "Prepare the final documentation and submit the internship task.",
-    status: "In Progress",
-    priority: "High",
-    dueDate: "2026-10-02",
-  },
-  {
-    id: 2,
-    title: "Build authentication module",
-    description:
-      "Implement login and registration functionality.",
-    status: "Completed",
-    priority: "High",
-    dueDate: "2026-10-01",
-  },
-  {
-    id: 3,
-    title: "Design dashboard",
-    description:
-      "Create a responsive dashboard for managing tasks.",
-    status: "Pending",
-    priority: "Medium",
-    dueDate: "2026-10-04",
-  },
-];
+const API_URL = "http://localhost:5000";
 
 function App() {
-  const [loggedIn, setLoggedIn] = useState(false);
-  const [showRegister, setShowRegister] = useState(false);
+  const [token, setToken] = useState(
+    () => localStorage.getItem("taskflow_token")
+  );
 
-  if (!loggedIn) {
+  const [user, setUser] = useState(() => {
+    const savedUser = localStorage.getItem("taskflow_user");
+    return savedUser ? JSON.parse(savedUser) : null;
+  });
+
+  const handleAuthSuccess = (data) => {
+    localStorage.setItem("taskflow_token", data.token);
+    localStorage.setItem(
+      "taskflow_user",
+      JSON.stringify(data.user)
+    );
+
+    setToken(data.token);
+    setUser(data.user);
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem("taskflow_token");
+    localStorage.removeItem("taskflow_user");
+
+    setToken(null);
+    setUser(null);
+  };
+
+  if (!token || !user) {
     return (
       <AuthScreen
-        showRegister={showRegister}
-        setShowRegister={setShowRegister}
-        onLogin={() => setLoggedIn(true)}
+        onAuthSuccess={handleAuthSuccess}
       />
     );
   }
 
-  return <Dashboard onLogout={() => setLoggedIn(false)} />;
+  return (
+    <Dashboard
+      token={token}
+      user={user}
+      onLogout={handleLogout}
+    />
+  );
 }
 
-/* =========================================================
+/* =========================
    AUTH SCREEN
-========================================================= */
+========================= */
 
-function AuthScreen({
-  showRegister,
-  setShowRegister,
-  onLogin,
-}) {
+function AuthScreen({ onAuthSuccess }) {
+  const [showRegister, setShowRegister] =
+    useState(false);
+
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
 
-  const handleSubmit = (e) => {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    onLogin();
+
+    setError("");
+    setLoading(true);
+
+    try {
+      const endpoint = showRegister
+        ? "/api/auth/register"
+        : "/api/auth/login";
+
+      const body = showRegister
+        ? {
+            name,
+            email,
+            password,
+          }
+        : {
+            email,
+            password,
+          };
+
+      const response = await fetch(
+        `${API_URL}${endpoint}`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(body),
+        }
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          data.message || "Authentication failed"
+        );
+      }
+
+      onAuthSuccess(data);
+    } catch (error) {
+      setError(error.message);
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -104,25 +151,25 @@ function AuthScreen({
           </h1>
 
           <p className="hero-description">
-            A modern task management workspace designed to
-            help individuals and teams plan, organize, and
-            complete their work efficiently.
+            A modern task management workspace designed
+            to help individuals and teams plan, organize,
+            and complete their work efficiently.
           </p>
 
           <div className="hero-features">
             <div>
               <CheckCircle2 size={18} />
-              <span>Simple task tracking</span>
+              <span>Secure user authentication</span>
             </div>
 
             <div>
               <CheckCircle2 size={18} />
-              <span>Real-time progress monitoring</span>
+              <span>Complete task management</span>
             </div>
 
             <div>
               <CheckCircle2 size={18} />
-              <span>Secure user workspace</span>
+              <span>Dynamic API-based workspace</span>
             </div>
           </div>
         </div>
@@ -145,6 +192,23 @@ function AuthScreen({
               ? "Start organizing your work today."
               : "Sign in to continue to your workspace."}
           </p>
+
+          {error && (
+            <div
+              style={{
+                padding: "11px 13px",
+                marginBottom: "16px",
+                borderRadius: "9px",
+                background: "rgba(239,68,68,0.10)",
+                border:
+                  "1px solid rgba(239,68,68,0.25)",
+                color: "#f87171",
+                fontSize: "13px",
+              }}
+            >
+              {error}
+            </div>
+          )}
 
           <form onSubmit={handleSubmit}>
             {showRegister && (
@@ -188,6 +252,7 @@ function AuthScreen({
                   setPassword(e.target.value)
                 }
                 required
+                minLength={6}
               />
             </div>
 
@@ -210,8 +275,11 @@ function AuthScreen({
             <button
               className="primary-btn"
               type="submit"
+              disabled={loading}
             >
-              {showRegister
+              {loading
+                ? "Please wait..."
+                : showRegister
                 ? "Create Account"
                 : "Sign In"}
             </button>
@@ -223,9 +291,10 @@ function AuthScreen({
               : "Don't have an account?"}
 
             <button
-              onClick={() =>
-                setShowRegister(!showRegister)
-              }
+              onClick={() => {
+                setShowRegister(!showRegister);
+                setError("");
+              }}
               type="button"
             >
               {showRegister
@@ -239,26 +308,16 @@ function AuthScreen({
   );
 }
 
-/* =========================================================
+/* =========================
    DASHBOARD
-========================================================= */
+========================= */
 
-function Dashboard({ onLogout }) {
-  const [tasks, setTasks] = useState(() => {
-    const savedTasks =
-      localStorage.getItem("taskflow_tasks");
-
-    return savedTasks
-      ? JSON.parse(savedTasks)
-      : initialTasks;
-  });
-
-  useEffect(() => {
-    localStorage.setItem(
-      "taskflow_tasks",
-      JSON.stringify(tasks)
-    );
-  }, [tasks]);
+function Dashboard({
+  token,
+  user,
+  onLogout,
+}) {
+  const [tasks, setTasks] = useState([]);
 
   const [activeMenu, setActiveMenu] =
     useState("Dashboard");
@@ -281,6 +340,232 @@ function Dashboard({ onLogout }) {
   const [sidebarOpen, setSidebarOpen] =
     useState(false);
 
+  const [loading, setLoading] =
+    useState(true);
+
+  const [error, setError] =
+    useState("");
+
+  const authHeaders = {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${token}`,
+  };
+
+  /* =========================
+     LOAD TASKS FROM API
+  ========================= */
+
+  const loadTasks = async () => {
+    try {
+      setLoading(true);
+      setError("");
+
+      const response = await fetch(
+        `${API_URL}/api/tasks`,
+        {
+          headers: authHeaders,
+        }
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          data.message || "Unable to load tasks"
+        );
+      }
+
+      setTasks(data);
+    } catch (error) {
+      setError(error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadTasks();
+  }, []);
+
+  /* =========================
+     TASK COUNTS
+  ========================= */
+
+  const completed = tasks.filter(
+    (task) => task.status === "Completed"
+  ).length;
+
+  const inProgress = tasks.filter(
+    (task) => task.status === "In Progress"
+  ).length;
+
+  const pending = tasks.filter(
+    (task) => task.status === "Pending"
+  ).length;
+
+  /* =========================
+     SEARCH + FILTER
+  ========================= */
+
+  const filteredTasks = tasks.filter((task) => {
+    const searchText =
+      search.toLowerCase();
+
+    const matchesSearch =
+      task.title
+        .toLowerCase()
+        .includes(searchText) ||
+      task.description
+        .toLowerCase()
+        .includes(searchText);
+
+    const matchesFilter =
+      filter === "All" ||
+      task.status === filter;
+
+    return (
+      matchesSearch &&
+      matchesFilter
+    );
+  });
+
+  /* =========================
+     CREATE / UPDATE
+  ========================= */
+
+  const saveTask = async (taskData) => {
+    try {
+      setError("");
+
+      const isEditing =
+        Boolean(editingTask);
+
+      const url = isEditing
+        ? `${API_URL}/api/tasks/${editingTask.id}`
+        : `${API_URL}/api/tasks`;
+
+      const response = await fetch(url, {
+        method: isEditing ? "PUT" : "POST",
+        headers: authHeaders,
+        body: JSON.stringify(taskData),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          data.message || "Unable to save task"
+        );
+      }
+
+      if (isEditing) {
+        setTasks((currentTasks) =>
+          currentTasks.map((task) =>
+            task.id === editingTask.id
+              ? data.task
+              : task
+          )
+        );
+      } else {
+        setTasks((currentTasks) => [
+          ...currentTasks,
+          data.task,
+        ]);
+      }
+
+      setShowModal(false);
+      setEditingTask(null);
+    } catch (error) {
+      setError(error.message);
+    }
+  };
+
+  /* =========================
+     DELETE
+  ========================= */
+
+  const deleteTask = async (id) => {
+    const confirmed = window.confirm(
+      "Are you sure you want to delete this task?"
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      setError("");
+
+      const response = await fetch(
+        `${API_URL}/api/tasks/${id}`,
+        {
+          method: "DELETE",
+          headers: authHeaders,
+        }
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          data.message || "Unable to delete task"
+        );
+      }
+
+      setTasks((currentTasks) =>
+        currentTasks.filter(
+          (task) => task.id !== id
+        )
+      );
+    } catch (error) {
+      setError(error.message);
+    }
+  };
+
+  /* =========================
+     COMPLETE / STATUS
+  ========================= */
+
+  const toggleComplete = async (task) => {
+    const newStatus =
+      task.status === "Completed"
+        ? "In Progress"
+        : "Completed";
+
+    try {
+      setError("");
+
+      const response = await fetch(
+        `${API_URL}/api/tasks/${task.id}`,
+        {
+          method: "PUT",
+          headers: authHeaders,
+          body: JSON.stringify({
+            status: newStatus,
+          }),
+        }
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          data.message || "Unable to update task"
+        );
+      }
+
+      setTasks((currentTasks) =>
+        currentTasks.map((item) =>
+          item.id === task.id
+            ? data.task
+            : item
+        )
+      );
+    } catch (error) {
+      setError(error.message);
+    }
+  };
+
   const currentDate = new Date();
 
   const greeting =
@@ -299,89 +584,8 @@ function Dashboard({ onLogout }) {
     })
     .toUpperCase();
 
-  const completed = tasks.filter(
-    (task) => task.status === "Completed"
-  ).length;
-
-  const inProgress = tasks.filter(
-    (task) => task.status === "In Progress"
-  ).length;
-
-  const pending = tasks.filter(
-    (task) => task.status === "Pending"
-  ).length;
-
-  const filteredTasks = tasks.filter((task) => {
-    const searchText = search.toLowerCase();
-
-    const matchesSearch =
-      task.title
-        .toLowerCase()
-        .includes(searchText) ||
-      task.description
-        .toLowerCase()
-        .includes(searchText);
-
-    const matchesFilter =
-      filter === "All" ||
-      task.status === filter;
-
-    return matchesSearch && matchesFilter;
-  });
-
-  const saveTask = (taskData) => {
-    if (editingTask) {
-      setTasks(
-        tasks.map((task) =>
-          task.id === editingTask.id
-            ? {
-                ...taskData,
-                id: editingTask.id,
-              }
-            : task
-        )
-      );
-    } else {
-      setTasks([
-        ...tasks,
-        {
-          ...taskData,
-          id: Date.now(),
-        },
-      ]);
-    }
-
-    setShowModal(false);
-    setEditingTask(null);
-  };
-
-  const deleteTask = (id) => {
-    setTasks(
-      tasks.filter(
-        (task) => task.id !== id
-      )
-    );
-  };
-
-  const toggleComplete = (id) => {
-    setTasks(
-      tasks.map((task) =>
-        task.id === id
-          ? {
-              ...task,
-              status:
-                task.status === "Completed"
-                  ? "In Progress"
-                  : "Completed",
-            }
-          : task
-      )
-    );
-  };
-
   return (
     <div className="dashboard-layout">
-
       {/* SIDEBAR */}
 
       <aside
@@ -399,12 +603,12 @@ function Dashboard({ onLogout }) {
 
         <div className="workspace">
           <div className="workspace-avatar">
-            R
+            {user.name?.charAt(0)?.toUpperCase()}
           </div>
 
           <div>
             <strong>
-              Rianna's Workspace
+              {user.name}'s Workspace
             </strong>
 
             <span>
@@ -482,8 +686,6 @@ function Dashboard({ onLogout }) {
             ACCOUNT
           </p>
 
-          {/* PROFILE BUTTON */}
-
           <button
             className={
               showProfile
@@ -511,26 +713,32 @@ function Dashboard({ onLogout }) {
         <div className="sidebar-footer">
           <div className="profile-mini">
             <div className="profile-avatar">
-              RK
+              {user.name
+                ?.split(" ")
+                .map((word) =>
+                  word.charAt(0)
+                )
+                .join("")
+                .slice(0, 2)
+                .toUpperCase()}
             </div>
 
             <div>
               <strong>
-                Rianna Kristin
+                {user.name}
               </strong>
 
               <span>
-                Developer
+                {user.role || "User"}
               </span>
             </div>
           </div>
         </div>
       </aside>
 
-      {/* MAIN CONTENT */}
+      {/* MAIN */}
 
       <main className="main-content">
-
         <header className="topbar">
           <button
             className="mobile-menu"
@@ -547,12 +755,12 @@ function Dashboard({ onLogout }) {
             </p>
 
             <h1>
-              {greeting}, Rianna 👋
+              {greeting},{" "}
+              {user.name?.split(" ")[0]} 👋
             </h1>
           </div>
 
           <div className="topbar-actions">
-
             <div className="search-box">
               <Search size={17} />
 
@@ -576,14 +784,19 @@ function Dashboard({ onLogout }) {
                 setShowProfile(true)
               }
             >
-              RK
+              {user.name
+                ?.split(" ")
+                .map((word) =>
+                  word.charAt(0)
+                )
+                .join("")
+                .slice(0, 2)
+                .toUpperCase()}
             </button>
-
           </div>
         </header>
 
         <section className="content">
-
           <div className="page-heading">
             <div>
               <p className="eyebrow">
@@ -612,12 +825,31 @@ function Dashboard({ onLogout }) {
             </button>
           </div>
 
-          <div className="stats-grid">
+          {error && (
+            <div
+              style={{
+                padding: "12px 16px",
+                marginBottom: "18px",
+                borderRadius: "10px",
+                background:
+                  "rgba(239,68,68,0.10)",
+                border:
+                  "1px solid rgba(239,68,68,0.25)",
+                color: "#f87171",
+                fontSize: "13px",
+              }}
+            >
+              {error}
+            </div>
+          )}
 
+          <div className="stats-grid">
             <StatCard
               title="Total Tasks"
               value={tasks.length}
-              icon={<CheckSquare size={21} />}
+              icon={
+                <CheckSquare size={21} />
+              }
               text="All tasks"
             />
 
@@ -631,23 +863,24 @@ function Dashboard({ onLogout }) {
             <StatCard
               title="Completed"
               value={completed}
-              icon={<CheckCircle2 size={21} />}
+              icon={
+                <CheckCircle2 size={21} />
+              }
               text="Successfully done"
             />
 
             <StatCard
               title="Pending"
               value={pending}
-              icon={<CalendarDays size={21} />}
+              icon={
+                <CalendarDays size={21} />
+              }
               text="Need attention"
             />
-
           </div>
 
           <section className="tasks-section">
-
             <div className="section-header">
-
               <div>
                 <h3>
                   My Tasks
@@ -660,7 +893,6 @@ function Dashboard({ onLogout }) {
               </div>
 
               <div className="filter-tabs">
-
                 {[
                   "All",
                   "Pending",
@@ -681,16 +913,25 @@ function Dashboard({ onLogout }) {
                     {item}
                   </button>
                 ))}
-
               </div>
-
             </div>
 
             <div className="task-list">
-
-              {filteredTasks.length === 0 ? (
+              {loading ? (
                 <div className="empty-state">
+                  <CheckSquare size={40} />
 
+                  <h3>
+                    Loading tasks...
+                  </h3>
+
+                  <p>
+                    Getting your tasks from the
+                    TaskFlow API.
+                  </p>
+                </div>
+              ) : filteredTasks.length === 0 ? (
+                <div className="empty-state">
                   <CheckSquare size={40} />
 
                   <h3>
@@ -698,8 +939,8 @@ function Dashboard({ onLogout }) {
                   </h3>
 
                   <p>
-                    Try changing your search
-                    or create a new task.
+                    Create your first task to get
+                    started.
                   </p>
 
                   <button
@@ -712,33 +953,27 @@ function Dashboard({ onLogout }) {
                     <Plus size={17} />
                     Create Task
                   </button>
-
                 </div>
               ) : (
                 filteredTasks.map((task) => (
                   <TaskCard
                     key={task.id}
                     task={task}
-
                     onEdit={() => {
                       setEditingTask(task);
                       setShowModal(true);
                     }}
-
                     onDelete={() =>
                       deleteTask(task.id)
                     }
-
                     onComplete={() =>
-                      toggleComplete(task.id)
+                      toggleComplete(task)
                     }
                   />
                 ))
               )}
-
             </div>
           </section>
-
         </section>
       </main>
 
@@ -747,23 +982,21 @@ function Dashboard({ onLogout }) {
       {showModal && (
         <TaskModal
           task={editingTask}
-
           onClose={() => {
             setShowModal(false);
             setEditingTask(null);
           }}
-
           onSave={saveTask}
         />
       )}
 
-      {/* =================================================
-          PROFILE MODAL - FIXED DARK DESIGN
-      ================================================= */}
+      {/* PROFILE */}
 
       {showProfile && (
         <div
-          onClick={() => setShowProfile(false)}
+          onClick={() =>
+            setShowProfile(false)
+          }
           style={{
             position: "fixed",
             inset: 0,
@@ -777,22 +1010,22 @@ function Dashboard({ onLogout }) {
           }}
         >
           <div
-            onClick={(e) => e.stopPropagation()}
+            onClick={(e) =>
+              e.stopPropagation()
+            }
             style={{
               width: "100%",
               maxWidth: "520px",
               background: "#0b1220",
               color: "#f8fafc",
-              border: "1px solid rgba(255,255,255,0.10)",
+              border:
+                "1px solid rgba(255,255,255,0.10)",
               borderRadius: "20px",
               padding: "28px",
               boxShadow:
                 "0 25px 80px rgba(0,0,0,0.55)",
             }}
           >
-
-            {/* HEADER */}
-
             <div
               style={{
                 display: "flex",
@@ -849,15 +1082,12 @@ function Dashboard({ onLogout }) {
               </button>
             </div>
 
-            {/* PROFILE */}
-
             <div
               style={{
                 textAlign: "center",
                 marginBottom: "28px",
               }}
             >
-
               <div
                 style={{
                   width: "88px",
@@ -872,11 +1102,16 @@ function Dashboard({ onLogout }) {
                   color: "#ffffff",
                   fontSize: "26px",
                   fontWeight: "800",
-                  boxShadow:
-                    "0 12px 35px rgba(37,99,235,0.30)",
                 }}
               >
-                RK
+                {user.name
+                  ?.split(" ")
+                  .map((word) =>
+                    word.charAt(0)
+                  )
+                  .join("")
+                  .slice(0, 2)
+                  .toUpperCase()}
               </div>
 
               <h3
@@ -887,7 +1122,7 @@ function Dashboard({ onLogout }) {
                   fontWeight: "700",
                 }}
               >
-                Rianna Kristin
+                {user.name}
               </h3>
 
               <p
@@ -897,11 +1132,9 @@ function Dashboard({ onLogout }) {
                   fontSize: "14px",
                 }}
               >
-                Developer
+                {user.role || "User"}
               </p>
             </div>
-
-            {/* INFORMATION */}
 
             <div
               style={{
@@ -909,20 +1142,19 @@ function Dashboard({ onLogout }) {
                 gap: "12px",
               }}
             >
-
               <ProfileRow
                 label="Full Name"
-                value="Rianna Kristin"
+                value={user.name}
               />
 
               <ProfileRow
                 label="Email"
-                value="riannakristin113@gmail.com"
+                value={user.email}
               />
 
               <ProfileRow
                 label="Workspace"
-                value="Rianna's Workspace"
+                value={`${user.name}'s Workspace`}
               />
 
               <ProfileRow
@@ -930,9 +1162,11 @@ function Dashboard({ onLogout }) {
                 value="Personal Workspace"
               />
 
+              <ProfileRow
+                label="Authorization"
+                value="Authenticated User"
+              />
             </div>
-
-            {/* CLOSE */}
 
             <button
               onClick={() =>
@@ -954,20 +1188,21 @@ function Dashboard({ onLogout }) {
             >
               Close Profile
             </button>
-
           </div>
         </div>
       )}
-
     </div>
   );
 }
 
-/* =========================================================
+/* =========================
    PROFILE ROW
-========================================================= */
+========================= */
 
-function ProfileRow({ label, value }) {
+function ProfileRow({
+  label,
+  value,
+}) {
   return (
     <div
       style={{
@@ -1005,9 +1240,9 @@ function ProfileRow({ label, value }) {
   );
 }
 
-/* =========================================================
+/* =========================
    STAT CARD
-========================================================= */
+========================= */
 
 function StatCard({
   title,
@@ -1017,7 +1252,6 @@ function StatCard({
 }) {
   return (
     <div className="stat-card">
-
       <div className="stat-top">
         <div className="stat-icon">
           {icon}
@@ -1025,18 +1259,15 @@ function StatCard({
       </div>
 
       <p>{title}</p>
-
       <h3>{value}</h3>
-
       <span>{text}</span>
-
     </div>
   );
 }
 
-/* =========================================================
+/* =========================
    TASK CARD
-========================================================= */
+========================= */
 
 function TaskCard({
   task,
@@ -1046,7 +1277,6 @@ function TaskCard({
 }) {
   return (
     <article className="task-card">
-
       <div
         className={
           task.status === "Completed"
@@ -1061,9 +1291,7 @@ function TaskCard({
       </div>
 
       <div className="task-main">
-
         <div className="task-title-row">
-
           <h4
             className={
               task.status === "Completed"
@@ -1075,11 +1303,12 @@ function TaskCard({
           </h4>
 
           <span
-            className={`priority ${task.priority.toLowerCase()}`}
+            className={`priority ${(
+              task.priority || "Medium"
+            ).toLowerCase()}`}
           >
             {task.priority}
           </span>
-
         </div>
 
         <p>
@@ -1087,26 +1316,24 @@ function TaskCard({
         </p>
 
         <div className="task-meta">
-
           <span>
             <CalendarDays size={14} />
             Due {task.dueDate}
           </span>
 
           <span
-            className={`status ${task.status
+            className={`status ${(
+              task.status || "Pending"
+            )
               .toLowerCase()
               .replace(" ", "-")}`}
           >
             {task.status}
           </span>
-
         </div>
-
       </div>
 
       <div className="task-actions">
-
         <button
           onClick={onEdit}
           title="Edit task"
@@ -1124,16 +1351,14 @@ function TaskCard({
         <button title="More options">
           <MoreHorizontal size={18} />
         </button>
-
       </div>
-
     </article>
   );
 }
 
-/* =========================================================
+/* =========================
    TASK MODAL
-========================================================= */
+========================= */
 
 function TaskModal({
   task,
@@ -1153,7 +1378,9 @@ function TaskModal({
     useState(task?.status || "Pending");
 
   const [dueDate, setDueDate] =
-    useState(task?.dueDate || "2026-10-05");
+    useState(
+      task?.dueDate || "2026-10-05"
+    );
 
   const submit = (e) => {
     e.preventDefault();
@@ -1169,11 +1396,8 @@ function TaskModal({
 
   return (
     <div className="modal-overlay">
-
       <div className="modal">
-
         <div className="modal-header">
-
           <div>
             <p className="eyebrow">
               {task
@@ -1191,16 +1415,14 @@ function TaskModal({
           <button
             className="close-btn"
             onClick={onClose}
+            type="button"
           >
             <X size={20} />
           </button>
-
         </div>
 
         <form onSubmit={submit}>
-
           <div className="input-group">
-
             <label>
               Task title
             </label>
@@ -1213,11 +1435,9 @@ function TaskModal({
               placeholder="e.g. Complete project documentation"
               required
             />
-
           </div>
 
           <div className="input-group">
-
             <label>
               Description
             </label>
@@ -1231,13 +1451,10 @@ function TaskModal({
               rows="4"
               required
             />
-
           </div>
 
           <div className="form-row">
-
             <div className="input-group">
-
               <label>
                 Priority
               </label>
@@ -1252,11 +1469,9 @@ function TaskModal({
                 <option>Medium</option>
                 <option>High</option>
               </select>
-
             </div>
 
             <div className="input-group">
-
               <label>
                 Status
               </label>
@@ -1271,13 +1486,10 @@ function TaskModal({
                 <option>In Progress</option>
                 <option>Completed</option>
               </select>
-
             </div>
-
           </div>
 
           <div className="input-group">
-
             <label>
               Due date
             </label>
@@ -1290,11 +1502,9 @@ function TaskModal({
               }
               required
             />
-
           </div>
 
           <div className="modal-actions">
-
             <button
               type="button"
               className="secondary-btn"
@@ -1311,11 +1521,8 @@ function TaskModal({
                 ? "Save Changes"
                 : "Create Task"}
             </button>
-
           </div>
-
         </form>
-
       </div>
     </div>
   );
